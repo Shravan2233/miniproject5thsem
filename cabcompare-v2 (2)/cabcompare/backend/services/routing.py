@@ -8,6 +8,7 @@ back to sample fares.
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -15,7 +16,7 @@ from typing import Any, Callable
 
 from .estimates import parse_metrics
 
-USER_AGENT = "RideWise/1.0 (student project)"
+USER_AGENT = "CabCompare/1.0 (student project)"
 TRAFFIC_FACTOR = 1.25  # OSRM times ignore traffic; this is a rough city-traffic allowance
 _sleep = time.sleep
 
@@ -26,8 +27,58 @@ def _get_json(url: str, timeout: int = 6) -> Any:
         return json.load(response)
 
 
+def compact_place_label(label: str) -> str:
+    if len(label) <= 160:
+        return label
+    parts = label.split(", ")
+    compact = parts[0][:157]
+    for part in parts[1:]:
+        candidate = f"{compact}, {part}"
+        if len(candidate) > 157:
+            break
+        compact = candidate
+    return f"{compact.rstrip(', ')}..."
+
+
+def normalize_place_query(text: str) -> str:
+    return re.sub(r"\bbanglore\b", "Bangalore", text, flags=re.IGNORECASE)
+
+
+def place_suggestions(
+    text: str,
+    near: dict[str, float] | None = None,
+    fetch: Callable = _get_json,
+) -> list[dict[str, Any]]:
+    params = {
+        "q": normalize_place_query(text),
+        "format": "jsonv2",
+        "addressdetails": "1",
+        "countrycodes": "in",
+        "limit": "5",
+    }
+    if near:
+        params["viewbox"] = f"{near['lng'] - 0.5},{near['lat'] + 0.5},{near['lng'] + 0.5},{near['lat'] - 0.5}"
+    found = fetch("https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(params))
+    suggestions = []
+    for item in found:
+        label = item.get("display_name")
+        if not label:
+            continue
+        label = compact_place_label(label)
+        parts = label.split(", ")
+        suggestions.append({
+            "id": f"{item.get('osm_type', 'place')}:{item.get('osm_id', label)}",
+            "main": parts[0],
+            "secondary": ", ".join(parts[1:]),
+            "text": label,
+            "lat": float(item["lat"]),
+            "lng": float(item["lon"]),
+        })
+    return suggestions[:5]
+
+
 def geocode(text: str, near: dict[str, float] | None = None, fetch: Callable = _get_json) -> dict[str, float] | None:
-    params = {"q": text, "format": "jsonv2", "limit": "1", "countrycodes": "in"}
+    params = {"q": normalize_place_query(text), "format": "jsonv2", "limit": "1", "countrycodes": "in"}
     if near:
         params["viewbox"] = f"{near['lng'] - 0.5},{near['lat'] + 0.5},{near['lng'] + 0.5},{near['lat'] - 0.5}"
     found = fetch("https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(params))

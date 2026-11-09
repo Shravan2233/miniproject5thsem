@@ -3,29 +3,33 @@ import { MapPin, X } from 'lucide-react'
 import { mapsEnabled, newSessionToken, placeCoordinates, suggestPlaces } from './maps.js'
 
 // Combobox with Google Places suggestions. Works as a plain text field when no Maps key is set.
-export default function LocationInput({ kicker, label, dotClass, value, onTyping, onPick, placeholder, inputRef, children }) {
+export default function LocationInput({ kicker, label, dotClass, value, onTyping, onPick, placeholder, inputRef, children, searchContext }) {
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
   const [busy, setBusy] = useState(false)
+  const [searchFailed, setSearchFailed] = useState(false)
   const token = useRef(null)
   const wrapper = useRef(null)
   const text = value.text || ''
 
   useEffect(() => {
-    if (!mapsEnabled || !open || text.trim().length < 3 || value.lat != null) { setItems([]); return undefined }
+    if (!open || text.trim().length < 3 || value.lat != null) { setItems([]); setSearchFailed(false); return undefined }
     let cancelled = false
     const timer = setTimeout(async () => {
       setBusy(true)
+      setSearchFailed(false)
       try {
-        token.current = token.current || (await newSessionToken())
-        const found = await suggestPlaces(text.trim(), token.current)
+        if (mapsEnabled) token.current = token.current || (await newSessionToken())
+        const found = await suggestPlaces(text.trim(), token.current, searchContext)
         if (!cancelled) { setItems(found.slice(0, 5)); setActive(-1) }
-      } catch { if (!cancelled) setItems([]) }
+      } catch {
+        if (!cancelled) { setItems([]); setSearchFailed(true) }
+      }
       finally { if (!cancelled) setBusy(false) }
-    }, 250)
+    }, mapsEnabled ? 250 : 1000)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [text, open, value.lat])
+  }, [text, open, value.lat, searchContext?.lat, searchContext?.lng])
 
   useEffect(() => {
     const close = (event) => { if (!wrapper.current?.contains(event.target)) setOpen(false) }
@@ -63,7 +67,7 @@ export default function LocationInput({ kicker, label, dotClass, value, onTyping
       </span>
       {text && <button type="button" className="clear-button" aria-label={`Clear ${label.toLowerCase()}`} onClick={() => { onTyping(''); inputRef?.current?.focus() }}><X size={14} /></button>}
       {children}
-      {open && (items.length > 0 || busy) && (
+      {open && (items.length > 0 || busy || searchFailed) && (
         <ul className="suggestions" id={listId} role="listbox">
           {items.map((item, index) => (
             <li key={item.id} role="option" aria-selected={index === active} className={index === active ? 'active' : ''}
@@ -72,7 +76,8 @@ export default function LocationInput({ kicker, label, dotClass, value, onTyping
             </li>
           ))}
           {busy && !items.length && <li className="suggestions-note">Searching places…</li>}
-          {items.length > 0 && <li className="suggestions-note powered">Powered by Google</li>}
+          {searchFailed && <li className="suggestions-note">Could not load suggestions. You can still enter the location.</li>}
+          {items.length > 0 && <li className="suggestions-note powered">{mapsEnabled ? 'Powered by Google' : '© OpenStreetMap contributors'}</li>}
         </ul>
       )}
     </div>

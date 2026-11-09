@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from cabcompare.backend.app import create_app
 
@@ -15,6 +16,27 @@ class ApiTests(unittest.TestCase):
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["fare_mode"], "demo")
+
+    def test_place_search_returns_openstreetmap_suggestions(self):
+        suggestions = [{
+            "id": "node:1", "main": "MG Road", "secondary": "Bengaluru, India",
+            "text": "MG Road, Bengaluru, India", "lat": 12.9, "lng": 77.6,
+        }]
+        with patch("cabcompare.backend.app.place_suggestions", return_value=suggestions) as search:
+            response = self.client.get("/api/places/search?q=MG%20Road&near_lat=12.9&near_lng=77.6")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["places"], suggestions)
+        search.assert_called_once_with("MG Road", near={"lat": 12.9, "lng": 77.6})
+
+    def test_place_search_rejects_short_query(self):
+        response = self.client.get("/api/places/search?q=MG")
+        self.assertEqual(response.status_code, 400)
+
+    def test_place_search_requires_valid_context_coordinates(self):
+        response = self.client.get("/api/places/search?q=Majestic&near_lat=12.9")
+        self.assertEqual(response.status_code, 400)
+        response = self.client.get("/api/places/search?q=Majestic&near_lat=999&near_lng=77.6")
+        self.assertEqual(response.status_code, 400)
 
     def test_compare_requires_valid_route(self):
         response = self.client.post("/api/rides/compare", json={"pickup": "", "destination": "B"})
@@ -41,6 +63,39 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(uber["booking"]["prefilled"])
         rapido = next(r for r in response.json["rides"] if r["provider"] == "Rapido")
         self.assertFalse(rapido["booking"]["prefilled"])
+
+    def test_booking_links_keep_typed_location_text(self):
+        pickup = "  Indiranagar  100 Feet Road, Bengaluru  "
+        destination = " MG Road, Bengaluru "
+        response = self.client.post("/api/rides/compare", json={
+            "pickup": pickup, "destination": destination,
+            "pickup_coords": {"lat": 12.9784, "lng": 77.6408},
+            "destination_coords": {"lat": 12.9756, "lng": 77.6066},
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["route"]["pickup"], pickup.strip())
+        self.assertEqual(response.json["route"]["destination"], destination.strip())
+
+        uber = next(r for r in response.json["rides"] if r["provider"] == "Uber")
+        uber_params = parse_qs(urlparse(uber["booking_url"]).query)
+        self.assertEqual(uber_params["pickup[formatted_address]"][0], pickup.strip())
+        self.assertEqual(uber_params["dropoff[formatted_address]"][0], destination.strip())
+
+        ola = next(r for r in response.json["rides"] if r["provider"] == "Ola")
+        ola_params = parse_qs(urlparse(ola["booking_url"]).query)
+        self.assertEqual(ola_params["pickup"][0], pickup.strip())
+        self.assertEqual(ola_params["drop"][0], destination.strip())
+
+    def test_uber_receives_typed_pickup_without_coordinates(self):
+        response = self.client.post("/api/rides/compare", json={
+            "pickup": "Indiranagar Metro, Bengaluru",
+            "destination": "MG Road, Bengaluru",
+        })
+        self.assertEqual(response.status_code, 200)
+        uber = next(r for r in response.json["rides"] if r["provider"] == "Uber")
+        params = parse_qs(urlparse(uber["booking_url"]).query)
+        self.assertEqual(params["pickup[formatted_address]"][0], "Indiranagar Metro, Bengaluru")
+        self.assertEqual(params["dropoff[formatted_address]"][0], "MG Road, Bengaluru")
 
     def test_invalid_coordinates_are_rejected(self):
         response = self.client.post("/api/rides/compare", json={

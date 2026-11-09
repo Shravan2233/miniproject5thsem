@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import {
-  ArrowDownUp, ArrowRight, Bike, CarFront, Check, ChevronDown, Clock3,
+  ArrowDownUp, ArrowRight, Bike, CarFront, Check, ChevronDown, Clock3, Copy,
   Crosshair, ExternalLink, MapPin, Navigation, RefreshCw, ShieldCheck, Sparkles,
   TrainFront, TriangleAlert, Zap,
 } from 'lucide-react'
@@ -45,6 +45,7 @@ function App() {
   const [updatedAt, setUpdatedAt] = useState('')
   const [metrics, setMetrics] = useState(null)
   const [notice, setNotice] = useState('')
+  const [copyFeedback, setCopyFeedback] = useState('')
   const destinationRef = useRef(null)
   const resultsRef = useRef(null)
   const [recent, setRecent] = useState(() => {
@@ -71,6 +72,7 @@ function App() {
       setDestination(nextRoute.destination)
       setRides(response.data.rides)
       setUpdatedAt(response.data.last_updated)
+      setCopyFeedback('')
       setRecent((current) => {
         const same = (a, b) => a.pickup.text === b.pickup.text && a.destination.text === b.destination.text
         const updated = [nextRoute, ...current.filter((item) => !same(item, nextRoute))].slice(0, 4)
@@ -102,6 +104,20 @@ function App() {
   function swapLocations() {
     setPickup(destination)
     setDestination(pickup)
+  }
+
+  async function copyTripText() {
+    const text = `Pickup: ${route.pickup.text}\nDrop: ${route.destination.text}`
+    if (!navigator.clipboard?.writeText) {
+      setCopyFeedback(`Clipboard is unavailable. Copy these details manually: ${text}`)
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyFeedback('Pickup and destination copied. Paste them into the provider app.')
+    } catch {
+      setCopyFeedback(`Could not access the clipboard. Copy these details manually: ${text}`)
+    }
   }
 
   function useCurrentLocation() {
@@ -169,7 +185,7 @@ function App() {
               </LocationInput>
               <button className="swap-button" type="button" onClick={swapLocations} title="Swap pickup and destination" aria-label="Swap pickup and destination"><ArrowDownUp size={15} /></button>
               <LocationInput kicker="TO" label="Destination" dotClass="destination-dot" value={destination} placeholder="Where to?" inputRef={destinationRef}
-                onTyping={(text) => setDestination(place(text))} onPick={setDestination} />
+                onTyping={(text) => setDestination(place(text))} onPick={setDestination} searchContext={pickup} />
             </div>
             <button className="search-button" type="submit" disabled={loading}>
               {loading ? <><span className="button-spinner" /> Comparing rides</> : <>Compare rides <ArrowRight size={17} /></>}
@@ -202,18 +218,22 @@ function App() {
                 {rides.map((ride) => <article className={ride.is_lowest ? 'ride-card lowest-card' : 'ride-card'} key={ride.id}>
                   <div className={`provider-symbol ${ride.ride_type}`} aria-hidden="true">{ride.ride_type === 'bike' ? <Bike size={20} /> : ride.ride_type === 'auto' ? <Navigation size={19} /> : <CarFront size={20} />}</div>
                   <div className="ride-main">
-                    <div className="ride-title-row"><h3>{ride.provider}</h3>{ride.is_lowest && <span className="lowest-badge"><Check size={12} /> Lowest price</span>}</div>
+                    <div className="ride-title-row"><h3>{ride.provider}</h3>{ride.is_lowest && <span className="lowest-badge"><Check size={12} />{ride.fare_status === 'estimated' ? 'Lowest estimate' : 'Lowest demo fare'}</span>}</div>
                     <div className="ride-details"><span>{ride.ride_type}</span><span className="detail-separator" />{ride.pickup_eta_minutes != null && <><span><Clock3 size={13} /> {ride.pickup_eta_minutes} min pickup</span><span className="detail-separator" /></>}<span>{ride.trip_duration_minutes} min trip</span><span className="detail-separator" /><span><MapPin size={12} /> {ride.distance_km} km{ride.fare_status === 'demo' ? ' demo' : ''}</span></div>
                     <div className="fare-source"><span className="demo-tag">{ride.fare_status === 'estimated' ? 'ESTIMATE' : 'DEMO FARE'}</span><span>Final fare is shown in the provider app</span></div>
                   </div>
-                  <a className="ride-price" href={ride.booking?.url} target="_blank" rel="noopener noreferrer" aria-label={`Book ${ride.provider} ${ride.ride_type}, sample fare ₹${ride.fare}. Opens ${ride.provider}.`}><strong>₹{ride.fare}</strong><span>{ride.fare_status === 'estimated' ? `est. ₹${ride.fare_low}–₹${ride.fare_high} · tap to book` : 'sample fare · tap to book'}</span></a>
+                  <a className="ride-price" href={ride.booking?.url} target="_blank" rel="noopener noreferrer" aria-label={`Book ${ride.provider} ${ride.ride_type}, ${ride.fare_status === 'estimated' ? 'estimated' : 'demo'} fare ₹${ride.fare}. Opens ${ride.provider}.`}><strong>₹{ride.fare}</strong><span>{ride.fare_status === 'estimated' ? `est. ₹${ride.fare_low}–₹${ride.fare_high} · tap to book` : 'sample fare · tap to book'}</span></a>
                   <div className="ride-action">
-                    <a className="provider-button" href={ride.booking?.url} target="_blank" rel="noopener noreferrer">Book on {ride.provider} <ExternalLink size={14} /></a>
+                    <div className="provider-actions">
+                      {!ride.booking?.prefilled && <button className="copy-route-button" type="button" onClick={copyTripText}><Copy size={13} /> Copy route text</button>}
+                      <a className="provider-button" href={ride.booking?.url} target="_blank" rel="noopener noreferrer">Book on {ride.provider} <ExternalLink size={14} /></a>
+                    </div>
                     <span>{ride.booking?.prefilled ? 'Your route is pre-filled' : `Opens ${ride.provider} — enter your route there`}</span>
                   </div>
                 </article>)}
               </div>
             ) : <div className="empty-state"><MapPin size={21} /><strong>No ride options in this category</strong><span>Try another ride type or compare all rides.</span></div>}
+            {copyFeedback && <p className="copy-feedback" role="status">{copyFeedback}</p>}
             <div className="fare-disclaimer"><TriangleAlert size={16} /><span>{notice || (metrics ? 'Estimates use the real route distance and approximate rate cards, not live provider prices. Surge, tolls and waiting can change the final fare; confirm it in the provider app before booking.' : 'Sample fares are for interface testing only.')}</span></div>
           </section>
         ) : (

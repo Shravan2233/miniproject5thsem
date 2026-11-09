@@ -8,7 +8,7 @@ The existing locker application in the parent workspace is not modified by this 
 
 - Route search with required-field, length, and identical-location validation.
 - Demo fare cards, ride category filters, cheapest/fastest-pickup/best-value sorting, refresh, and source-aware lowest-price badge.
-- Browser geolocation after an explicit user click. Coordinates are shown as the pickup text; no reverse geocoding or location history is performed.
+- Browser geolocation after an explicit user click. Recent routes are stored only on the current device.
 - Device-local recent searches and sample popular routes.
 - Flask health, provider-status, popular-route, and comparison endpoints.
 - Separate status modules for Uber, Rapido, Ola, and Namma Yatri. They report unavailable until an approved integration exists.
@@ -70,9 +70,9 @@ Database connection variables are placeholders in `.env.example`. The initial AP
 
 ## Maps and Provider Integrations
 
-No mapping or provider credentials are required for demo mode. To add autocomplete, route geometry, distance, and duration, choose a mapping service, configure its server-side credential in the environment, restrict the key by API and deployment origin where supported, and proxy protected requests through the backend. Browser geolocation is only a coordinate input in this release.
+No mapping credentials are required for demo mode. The app uses public OpenStreetMap services for location suggestions and route lookup when no Google Maps key is configured; Google Maps can be enabled for Places, Geocoding, and Routes features as described below.
 
-No live fare API or approved partner access is configured or claimed for Uber, Rapido, Ola, or Namma Yatri. Before enabling an adapter, verify the provider's current official partner documentation, obtain written access and credentials as required, and implement only documented APIs and supported app links. Do not scrape private endpoints or construct undocumented deep links. The current provider actions stay disabled because no verified booking URL is available.
+No live fare API or approved partner access is configured or claimed for Uber, Rapido, Ola, or Namma Yatri. Before enabling a quote adapter, verify the provider's current official partner documentation and obtain any required access. Do not scrape private endpoints or construct undocumented deep links. Current booking links use supported provider web entry points; providers without verified route-prefill support offer a copy-route action instead.
 
 ## Verification
 
@@ -92,14 +92,14 @@ Screenshot checklist: desktop initial search view; mobile initial search view; d
 
 ## Not Yet Implemented
 
-This is the first working comparison release, not the complete production platform. MySQL persistence, registration/login, authorized search history, favorites, savings analytics and Recharts dashboards, map autocomplete/route rendering, provider fare APIs, and verified app redirects are not wired yet. Demo fares must not be used to make a booking or savings claim.
+This is the first working comparison release, not the complete production platform. MySQL persistence, registration/login, authorized search history, favorites, savings analytics and Recharts dashboards, map route rendering, and provider fare APIs are not wired yet. Demo fares must not be used to make a booking or savings claim.
 
 ## v2 Update: Google Maps places and booking links
 
-**Google Maps (location search + "use my location").** Create a key in Google Cloud Console, enable *Maps JavaScript API*, *Places API (New)* and *Geocoding API*, restrict it to HTTP referrers (your site origins), and set `VITE_GOOGLE_MAPS_API_KEY` in `frontend/.env`. Restart `npm run dev`. Without a key the app still works with typed text, and the locate button shows coordinates. Geolocation needs `localhost` or HTTPS.
+**Location suggestions and routing.** Without a Google key, location suggestions use OpenStreetMap's Nominatim service and route metrics use Nominatim plus OSRM. Select a suggestion to attach coordinates; manually typed locations remain supported. With a Google key, enable *Maps JavaScript API*, *Places API (New)*, *Geocoding API*, and *Routes API*, restrict it to your site origins, and set `VITE_GOOGLE_MAPS_API_KEY` in `frontend/.env`. Restart `npm run dev`. Geolocation needs `localhost` or HTTPS. OpenStreetMap services have fair-use limits; do not use this public setup for high-traffic production.
 
-**Booking links.** Prices and the "Book on ..." button open the provider via `backend/providers/links.py`. Uber and Ola links carry the pickup/drop coordinates; Rapido and Namma Yatri open their official site because no verifiable route-prefill link exists, and the user enters the route there. The API now accepts optional `pickup_coords` / `destination_coords` (`{"lat":..,"lng":..}`) and returns `booking` and `booking_url` on every ride. Fares are still demo values until a provider fare API is approved. Verify the link formats against current provider docs before launch.
+**Booking links.** Prices and the "Book on ..." button open the provider via `backend/providers/links.py`. Uber carries the entered pickup/drop text and coordinates when available; Ola carries text and coordinates when available. Rapido and Namma Yatri do not have a verified route-prefill link configured, so the app provides a copy-route action before you enter the trip in their app. The API accepts optional `pickup_coords` / `destination_coords` (`{"lat":..,"lng":..}`) and returns `booking` and `booking_url` on every ride. Verify link formats against current provider docs before launch.
 
-**Estimated fares.** With a Maps key, the browser gets the real driving distance and time (Routes API) and the backend turns them into estimates using the approximate rate cards in `backend/providers/rates.py`. Enable **Routes API** on your key as well. Edit the numbers in that file to match real prices. Without a key, sample fares are shown. These are estimates, not provider quotes.
+**Estimated fares.** With route metrics, the backend turns distance and duration into indicative estimates using approximate rate cards in `backend/providers/rates.py`. Without route metrics, sample fares are shown. No real-time provider quotes are available in this project; fares vary by city, vehicle, demand, tolls, and app-specific fees. These figures cannot be expected to match the live price shown in a provider app.
 
 **No Google key needed for estimates.** If the browser does not send a route (no Maps key), the backend looks up the route for free using OpenStreetMap Nominatim (addresses) and OSRM (driving distance). These are public community services with fair-use limits, fine for a project demo. If they cannot be reached, sample fares are shown.

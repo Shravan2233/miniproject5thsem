@@ -7,7 +7,7 @@ from .services.comparison import InvalidRoute, compare_rides
 from .providers.demo import DEMO_RIDES
 from .providers.links import booking_for
 from .services.estimates import estimate_rides, parse_metrics
-from .services.routing import osm_route_metrics
+from .services.routing import osm_route_metrics, place_suggestions
 
 
 def parse_coords(value):
@@ -63,6 +63,27 @@ def create_app():
             ],
             "source": "demo",
         })
+
+    @app.get("/api/places/search")
+    def search_places():
+        query = request.args.get("q", "").strip()
+        if len(query) < 3 or len(query) > 160:
+            return jsonify({"error": "Search text must be between 3 and 160 characters."}), 400
+        has_near_lat = "near_lat" in request.args
+        has_near_lng = "near_lng" in request.args
+        if has_near_lat != has_near_lng:
+            return jsonify({"error": "Nearby search requires both coordinates."}), 400
+        try:
+            near = parse_coords({
+                "lat": request.args["near_lat"],
+                "lng": request.args["near_lng"],
+            }) if has_near_lat else None
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        try:
+            return jsonify({"places": place_suggestions(query, near=near)})
+        except (OSError, ValueError, KeyError, TypeError):
+            return jsonify({"error": "Place suggestions are temporarily unavailable."}), 502
 
     @app.post("/api/rides/compare")
     def compare():

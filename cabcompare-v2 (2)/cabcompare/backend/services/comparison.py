@@ -15,8 +15,8 @@ class InvalidRoute(ValueError):
 def validate_route(pickup: Any, destination: Any) -> tuple[str, str]:
     if not isinstance(pickup, str) or not isinstance(destination, str):
         raise InvalidRoute("Pickup and destination must be text.")
-    pickup = " ".join(pickup.split())
-    destination = " ".join(destination.split())
+    pickup = pickup.strip()
+    destination = destination.strip()
     if not pickup or not destination:
         raise InvalidRoute("Enter both a pickup and destination.")
     if len(pickup) > 160 or len(destination) > 160:

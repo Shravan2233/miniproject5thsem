@@ -30,9 +30,7 @@ def uber_link(route: dict[str, Any]) -> dict[str, Any]:
     if _has_coords(pickup):
         params["pickup[latitude]"] = f"{pickup['lat']:.6f}"
         params["pickup[longitude]"] = f"{pickup['lng']:.6f}"
-        params["pickup[formatted_address]"] = pickup["text"]
-    else:
-        params["pickup"] = "my_location"
+    params["pickup[formatted_address]"] = pickup["text"]
     if _has_coords(drop):
         params["dropoff[latitude]"] = f"{drop['lat']:.6f}"
         params["dropoff[longitude]"] = f"{drop['lng']:.6f}"

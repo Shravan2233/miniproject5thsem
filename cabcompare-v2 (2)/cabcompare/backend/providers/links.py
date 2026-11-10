@@ -1,17 +1,7 @@
-"""Booking link builders.
-
-Every URL here is an https link on the provider's own domain, so on a phone
-with the app installed the OS can hand it to the app, and on desktop it opens
-the provider's website. Only Uber (documented "Ride Request" universal link)
-and Ola (book.olacabs.com web booking) accept a pre-filled route. Rapido and
-Namma Yatri have no public route-prefill link that we could verify, so those
-open the provider's official page and the user enters the route there.
-
-Verify each format against the provider's current docs before production use,
-and edit ONLY this file if a provider changes its link scheme.
-"""
+"""Build official provider booking URLs and report route-transfer limitations."""
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 from urllib.parse import urlencode
@@ -21,42 +11,148 @@ def _has_coords(place: dict[str, Any]) -> bool:
     return place.get("lat") is not None and place.get("lng") is not None
 
 
-def uber_link(route: dict[str, Any]) -> dict[str, Any]:
+def _uber_location(place: dict[str, Any]) -> str:
+    parts = [part.strip() for part in place["text"].split(",") if part.strip()]
+    location = {
+        "latitude": place["lat"],
+        "longitude": place["lng"],
+        "addressLine1": parts[0] if parts else place["text"].strip(),
+        "addressLine2": place["text"].strip(),
+    }
+    return json.dumps(location, separators=(",", ":"))
+
+
+def uber_link(route: dict[str, Any], ride_type: str | None = None) -> dict[str, Any]:
     pickup, drop = route["pickup"], route["destination"]
-    params: dict[str, str] = {"action": "setPickup"}
+    params: dict[str, str] = {}
     client_id = os.getenv("UBER_CLIENT_ID")
     if client_id:
         params["client_id"] = client_id
-    if _has_coords(pickup):
-        params["pickup[latitude]"] = f"{pickup['lat']:.6f}"
-        params["pickup[longitude]"] = f"{pickup['lng']:.6f}"
-    params["pickup[formatted_address]"] = pickup["text"]
-    if _has_coords(drop):
-        params["dropoff[latitude]"] = f"{drop['lat']:.6f}"
-        params["dropoff[longitude]"] = f"{drop['lng']:.6f}"
-    params["dropoff[formatted_address]"] = drop["text"]
-    return {"url": "https://m.uber.com/ul/?" + urlencode(params), "prefilled": True}
-
-
-def ola_link(route: dict[str, Any]) -> dict[str, Any]:
-    pickup, drop = route["pickup"], route["destination"]
-    if not (_has_coords(pickup) and _has_coords(drop)):
-        # Ola needs coordinates; without them we can only open the booking page.
-        return {"url": "https://book.olacabs.com/", "prefilled": False}
-    params = {
-        "serviceType": "p2p",
-        "lat": f"{pickup['lat']:.6f}", "lng": f"{pickup['lng']:.6f}", "pickup": pickup["text"],
-        "drop_lat": f"{drop['lat']:.6f}", "drop_lng": f"{drop['lng']:.6f}", "drop": drop["text"],
+    has_route = _has_coords(pickup) and _has_coords(drop)
+    if has_route:
+        params["pickup"] = _uber_location(pickup)
+        params["drop[0]"] = _uber_location(drop)
+    url = "https://m.uber.com/looking"
+    if params:
+        url += "?" + urlencode(params)
+    if has_route and not client_id:
+        message = (
+            "Pickup and destination coordinates are in Uber's documented link format. "
+            "Uber may replace the names with nearby provider locations. "
+            "UBER_CLIENT_ID is not configured for the documented app handoff; "
+            "confirm both locations in Uber's mobile web page."
+        )
+    elif has_route:
+        message = (
+            "Pickup and destination coordinates are in Uber's documented link format. "
+            "Uber may replace the names with nearby provider locations; "
+            "confirm both locations on the provider screen before requesting."
+        )
+    else:
+        message = "Coordinates are unavailable; enter pickup and destination in Uber."
+    return {
+        "url": url,
+        "mobile_url": None,
+        "prefilled": False,
+        "locations_in_url": has_route,
+        "location_transfer": "url_generated_unverified" if has_route else "manual_entry_required",
+        "verification_status": "not_verified_on_mobile_device",
+        "message": message,
     }
-    return {"url": "https://book.olacabs.com/?" + urlencode(params), "prefilled": True}
 
 
-def rapido_link(route: dict[str, Any]) -> dict[str, Any]:
-    return {"url": "https://www.rapido.bike/", "prefilled": False}
+def ola_link(route: dict[str, Any], ride_type: str | None = None) -> dict[str, Any]:
+    pickup, drop = route["pickup"], route["destination"]
+    has_route = _has_coords(pickup) and _has_coords(drop)
+    url = "https://book.olacabs.com/"
+    mobile_url = None
+    message = "Coordinates are unavailable; enter pickup and destination in Ola."
+    transfer_status = "manual_entry_required"
+    locations_in_url = False
+    affiliate_attribution = "not_configured"
+    if has_route:
+        web_params = {
+            "lat": f"{pickup['lat']:.6f}",
+            "lng": f"{pickup['lng']:.6f}",
+            "drop_lat": f"{drop['lat']:.6f}",
+            "drop_lng": f"{drop['lng']:.6f}",
+            "pickup_name": pickup["text"],
+            "drop_name": drop["text"],
+            "dsw": "yes",
+        }
+        xapp_token = os.getenv("OLA_XAPP_TOKEN")
+        if xapp_token:
+            web_params["utm_source"] = xapp_token
+            affiliate_attribution = "configured"
+            mobile_params = {
+                "lat": web_params["lat"],
+                "lng": web_params["lng"],
+                "drop_lat": web_params["drop_lat"],
+                "drop_lng": web_params["drop_lng"],
+                "address": pickup["text"],
+                "drop_address": drop["text"],
+                "landing_page": "bk",
+                "utm_source": xapp_token,
+            }
+            mobile_url = (
+                "https://olawebcdn.com/assets/ola-universal-link.html?"
+                + urlencode(mobile_params)
+            )
+            transfer_status = "web_prefill_tested_universal_link_unverified"
+            handoff_note = (
+                "The documented Ola universal link is also available on mobile; "
+                "native handoff has not been device-tested."
+            )
+        else:
+            transfer_status = "web_prefill_tested_mobile_unverified"
+            handoff_note = (
+                "Ola's XAPP token is not configured, so the documented app/universal "
+                "link and affiliate attribution are unavailable."
+            )
+        message = (
+            "Ola displayed both route locations in the desktop web test. "
+            f"{handoff_note} Confirm the route before booking."
+        )
+        url += "?" + urlencode(web_params)
+        locations_in_url = True
+    return {
+        "url": url,
+        "mobile_url": mobile_url,
+        "prefilled": has_route,
+        "locations_in_url": locations_in_url,
+        "location_transfer": transfer_status,
+        "verification_status": (
+            "desktop_web_prefill_verified_mobile_unverified"
+            if has_route
+            else "not_verified_on_mobile_device"
+        ),
+        "affiliate_attribution": affiliate_attribution,
+        "message": message,
+    }
 
 
-def namma_yatri_link(route: dict[str, Any]) -> dict[str, Any]:
-    return {"url": "https://nammayatri.in/", "prefilled": False}
+def rapido_link(route: dict[str, Any], ride_type: str | None = None) -> dict[str, Any]:
+    return {
+        "url": "https://www.rapido.bike/",
+        "mobile_url": None,
+        "prefilled": False,
+        "locations_in_url": False,
+        "location_transfer": "manual_entry_required",
+        "verification_status": "not_supported",
+        "message": "Rapido has no verified public route-prefill link; enter both locations in Rapido.",
+    }
+
+
+def namma_yatri_link(route: dict[str, Any], ride_type: str | None = None) -> dict[str, Any]:
+    return {
+        "url": "https://nammayatri.in/",
+        "mobile_url": None,
+        "prefilled": False,
+        "locations_in_url": False,
+        "location_transfer": "manual_entry_required",
+        "verification_status": "not_supported",
+        "message": "Namma Yatri has no verified public route-prefill link; enter both locations in Namma Yatri.",
+    }
 
 
 BUILDERS = {
@@ -67,8 +163,8 @@ BUILDERS = {
 }
 
 
-def booking_for(provider: str, route: dict[str, Any]) -> dict[str, Any] | None:
+def booking_for(provider: str, route: dict[str, Any], ride_type: str | None = None) -> dict[str, Any] | None:
     builder = BUILDERS.get(provider.casefold())
     if not builder:
         return None
-    return {"provider": provider, **builder(route)}
+    return {"provider": provider, **builder(route, ride_type)}

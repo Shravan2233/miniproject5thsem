@@ -2,6 +2,6 @@ PROVIDER = {
     "id": "ola",
     "name": "Ola",
     "status": "unavailable",
-    "details": "No approved fare API credentials are configured.",
+    "details": "Ola Developer APIs are invite-only; no authorized API or affiliate access is configured.",
     "booking_url": None,
 }

@@ -2,6 +2,6 @@ PROVIDER = {
     "id": "rapido",
     "name": "Rapido",
     "status": "unavailable",
-    "details": "No approved fare API credentials are configured.",
+    "details": "No public official fare-estimate API or authorized partner access is configured.",
     "booking_url": None,
 }

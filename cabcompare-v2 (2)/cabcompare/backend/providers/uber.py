@@ -2,6 +2,6 @@ PROVIDER = {
     "id": "uber",
     "name": "Uber",
     "status": "unavailable",
-    "details": "No approved fare API credentials are configured.",
+    "details": "Uber requires API approval, and its current terms prohibit competitive price comparisons.",
     "booking_url": None,
 }

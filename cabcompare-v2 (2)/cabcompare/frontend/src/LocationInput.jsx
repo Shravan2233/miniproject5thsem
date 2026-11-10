@@ -3,12 +3,18 @@ import { MapPin, X } from 'lucide-react'
 import { mapsEnabled, newSessionToken, placeCoordinates, suggestPlaces } from './maps.js'
 
 // Combobox with Google Places suggestions. Works as a plain text field when no Maps key is set.
-export default function LocationInput({ kicker, label, dotClass, value, onTyping, onPick, placeholder, inputRef, children, searchContext }) {
+export default function LocationInput({
+  kicker, label, dotClass, value, onTyping, onPick, onCoordinatesPending = () => {},
+  placeholder, inputRef, children, searchContext,
+}) {
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
   const [busy, setBusy] = useState(false)
   const [searchFailed, setSearchFailed] = useState(false)
+  const [resolvingCoordinates, setResolvingCoordinates] = useState(false)
+  const [coordinateWarning, setCoordinateWarning] = useState(false)
+  const selectionVersion = useRef(0)
   const token = useRef(null)
   const wrapper = useRef(null)
   const text = value.text || ''
@@ -39,9 +45,31 @@ export default function LocationInput({ kicker, label, dotClass, value, onTyping
 
   async function choose(item) {
     setOpen(false); setItems([])
+    const version = ++selectionVersion.current
+    setCoordinateWarning(false)
+    setResolvingCoordinates(true)
+    onCoordinatesPending(true)
     onPick({ text: item.text }) // show the label immediately
-    try { onPick(await placeCoordinates(item)) } catch { /* label alone is still usable */ }
-    token.current = null // a session ends once a place is selected
+    try {
+      const selectedPlace = await placeCoordinates(item)
+      if (version === selectionVersion.current) onPick(selectedPlace)
+    } catch {
+      if (version === selectionVersion.current) setCoordinateWarning(true)
+    } finally {
+      if (version === selectionVersion.current) {
+        setResolvingCoordinates(false)
+        onCoordinatesPending(false)
+      }
+      token.current = null // a session ends once a place is selected
+    }
+  }
+
+  function typeLocation(nextText) {
+    selectionVersion.current += 1
+    setResolvingCoordinates(false)
+    setCoordinateWarning(false)
+    onCoordinatesPending(false)
+    onTyping(nextText)
   }
 
   function onKeyDown(event) {
@@ -62,10 +90,12 @@ export default function LocationInput({ kicker, label, dotClass, value, onTyping
           ref={inputRef} aria-label={label} value={text} placeholder={placeholder} maxLength={160}
           role="combobox" aria-expanded={open && items.length > 0} aria-controls={listId} aria-autocomplete="list"
           autoComplete="off" onKeyDown={onKeyDown} onFocus={() => setOpen(true)}
-          onChange={(event) => { onTyping(event.target.value); setOpen(true) }}
+          onChange={(event) => { typeLocation(event.target.value); setOpen(true) }}
         />
+        {resolvingCoordinates && <small className="coordinate-status" role="status">Resolving selected coordinates…</small>}
+        {coordinateWarning && <small className="coordinate-status warning" role="alert">Could not resolve exact coordinates; confirm the route with the provider.</small>}
       </span>
-      {text && <button type="button" className="clear-button" aria-label={`Clear ${label.toLowerCase()}`} onClick={() => { onTyping(''); inputRef?.current?.focus() }}><X size={14} /></button>}
+      {text && <button type="button" className="clear-button" aria-label={`Clear ${label.toLowerCase()}`} onClick={() => { typeLocation(''); inputRef?.current?.focus() }}><X size={14} /></button>}
       {children}
       {open && (items.length > 0 || busy || searchFailed) && (
         <ul className="suggestions" id={listId} role="listbox">

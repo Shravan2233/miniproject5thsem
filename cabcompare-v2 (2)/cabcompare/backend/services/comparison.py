@@ -6,6 +6,12 @@ from typing import Any
 
 CATEGORIES = {"bike", "auto", "sedan", "premium"}
 SORT_OPTIONS = {"cheapest", "pickup", "best_value"}
+FARE_STATUSES = {
+    "LIVE_QUOTE",
+    "LIVE_ESTIMATE",
+    "CALCULATED_ESTIMATE",
+    "UNAVAILABLE",
+}
 
 
 class InvalidRoute(ValueError):
@@ -54,7 +60,7 @@ def compare_rides(
         and isinstance(ride.get("fare"), (int, float))
         and ride["fare"] >= 0
         and ride.get("currency")
-        and ride.get("fare_status") in {"demo", "estimated", "live"}
+        and ride.get("fare_status") in FARE_STATUSES - {"UNAVAILABLE"}
     ]
     lowest_id = None
     if comparable:
@@ -87,5 +93,5 @@ def compare_rides(
         "route": {"pickup": pickup, "destination": destination},
         "rides": results,
         "last_updated": datetime.now(timezone.utc).isoformat(),
-        "fare_source": results[0].get("fare_status", "demo") if results else "demo",
+        "fare_source": results[0].get("fare_status", "UNAVAILABLE") if results else "UNAVAILABLE",
     }

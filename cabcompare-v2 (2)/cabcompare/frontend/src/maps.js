@@ -1,7 +1,7 @@
 // Google Maps helpers: Places autocomplete (new Places API), place details, reverse geocoding.
 const KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 export const mapsEnabled = Boolean(KEY)
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
 let loader
 function compactPlaceLabel(label) {

@@ -2,6 +2,6 @@ PROVIDER = {
     "id": "namma-yatri",
     "name": "Namma Yatri",
     "status": "unavailable",
-    "details": "No approved fare API credentials are configured.",
+    "details": "Public source repositories do not provide this app authorized production quote access.",
     "booking_url": None,
 }

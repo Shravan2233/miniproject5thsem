@@ -71,6 +71,21 @@ class RoutingTests(unittest.TestCase):
         routing.osm_route_metrics("x", pickup, "y", {"lat": 12.95, "lng": 77.65}, fetch=fetch)
         self.assertEqual(len(calls), 1)
 
+    def test_resolves_booking_coordinates_without_requesting_a_route(self):
+        requests = []
+
+        def fetch(url):
+            requests.append(url)
+            return [{"lat": "12.9716", "lon": "77.5946"}]
+
+        found = routing.osm_route_points("Pickup", None, "Destination", None, fetch=fetch)
+        self.assertEqual(found, {
+            "pickup": {"lat": 12.9716, "lng": 77.5946},
+            "destination": {"lat": 12.9716, "lng": 77.5946},
+        })
+        self.assertEqual(len(requests), 2)
+        self.assertTrue(all("nominatim" in url for url in requests))
+
     def test_failures_return_none(self):
         def broken(url):
             raise OSError("network down")

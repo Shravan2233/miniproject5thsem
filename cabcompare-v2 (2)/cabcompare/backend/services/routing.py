@@ -2,8 +2,8 @@
 
 Used when the browser did not send route metrics (for example no Google Maps key).
 Both are public community services with fair-use limits, which is fine for a student
-project but not for production traffic. Any failure returns None and the app falls
-back to sample fares.
+project but not for production traffic. Any failure returns None; provider fares
+remain unavailable rather than being synthesized from route distance.
 """
 from __future__ import annotations
 
@@ -87,8 +87,8 @@ def geocode(text: str, near: dict[str, float] | None = None, fetch: Callable = _
     return {"lat": float(found[0]["lat"]), "lng": float(found[0]["lon"])}
 
 
-def osm_route_metrics(pickup_text, pickup_coords, destination_text, destination_coords, fetch: Callable = _get_json):
-    """Return {'metrics', 'pickup', 'destination'} or None."""
+def osm_route_points(pickup_text, pickup_coords, destination_text, destination_coords, fetch: Callable = _get_json):
+    """Resolve missing pickup and destination coordinates, or return None."""
     try:
         origin = pickup_coords
         if origin is None:
@@ -98,6 +98,20 @@ def osm_route_metrics(pickup_text, pickup_coords, destination_text, destination_
         destination = destination_coords or geocode(destination_text, near=origin, fetch=fetch)
         if not origin or not destination:
             return None
+        return {"pickup": origin, "destination": destination}
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return None
+
+
+def osm_route_metrics(pickup_text, pickup_coords, destination_text, destination_coords, fetch: Callable = _get_json):
+    """Return {'metrics', 'pickup', 'destination'} or None."""
+    try:
+        points = osm_route_points(
+            pickup_text, pickup_coords, destination_text, destination_coords, fetch=fetch
+        )
+        if not points:
+            return None
+        origin, destination = points["pickup"], points["destination"]
         url = (f"https://router.project-osrm.org/route/v1/driving/{origin['lng']},{origin['lat']};"
                f"{destination['lng']},{destination['lat']}?overview=false")
         route = fetch(url)["routes"][0]
@@ -105,6 +119,6 @@ def osm_route_metrics(pickup_text, pickup_coords, destination_text, destination_
             "distance_km": route["distance"] / 1000,
             "duration_minutes": route["duration"] / 60 * TRAFFIC_FACTOR,
         })
-        return {"metrics": metrics, "pickup": origin, "destination": destination}
+        return {"metrics": metrics, **points}
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         return None
